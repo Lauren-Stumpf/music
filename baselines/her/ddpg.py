@@ -220,6 +220,7 @@ class DDPG(object):
             self.main.neg_logp_pi_tf,
             self.e_w_tf,
         ])
+
         return critic_loss, actor_loss, Q_grad, pi_grad, neg_logp_pi, e_w
 
     def _update_mi(self, mi_grad):
@@ -381,20 +382,35 @@ class DDPG(object):
 
         if not self.sac:
             self.main.neg_logp_pi_tf = tf.zeros(1)
-
-        target_tf = tf.clip_by_value(self.r_scale * batch_tf['r'] * batch_tf['r_w'] + (tf.clip_by_value( self.mi_r_scale * batch_tf['m'], *(0, 1) ) - (1 if not self.mi_r_scale == 0 else 0)) * batch_tf['m_w'] + (tf.clip_by_value( self.sk_r_scale * batch_tf['s'], *(-1, 0))) * batch_tf['s_w'] + (tf.clip_by_value( self.et_r_scale * self.main.neg_logp_pi_tf, *(-1, 0))) * self.e_w_tf + self.gamma * target_Q_pi_tf, *clip_range)
-
+        #Confused about clip by value, what exactly are we clipping 
+        target_tf = 
+            tf.clip_by_value(
+                self.r_scale * batch_tf['r'] * batch_tf['r_w'] + 
+            (tf.clip_by_value(self.mi_r_scale * batch_tf['m'], *(0, 1)) - (1 if not self.mi_r_scale == 0 else 0))
+                * batch_tf['m_w'] + 
+            (tf.clip_by_value(self.sk_r_scale * batch_tf['s'], *(-1, 0))) * batch_tf['s_w'] + 
+            (tf.clip_by_value( self.et_r_scale * self.main.neg_logp_pi_tf, *(-1, 0))) * self.e_w_tf + self.gamma * target_Q_pi_tf, *clip_range)
+        #This is q_backup = tf.stop_gradient(
+                        self.rewards_ph +
+                        (1 - self.terminals_ph) * self.gamma * self.value_target
+                    )
+                    #Q regression 
+        
+        
         self.td_error_tf = tf.stop_gradient(target_tf) - self.main.Q_tf
-        self.errors_tf = tf.square(self.td_error_tf)
-        self.errors_tf = tf.reduce_mean(batch_tf['w'] * self.errors_tf)
-        self.Q_loss_tf = tf.reduce_mean(self.errors_tf)
+        self.errors_tf = tf.square(self.td_error_tf) #stable baselines multiply by 0.5 
+        self.errors_tf = tf.reduce_mean(batch_tf['w'] * self.errors_tf) #What is batch_tf['w']
+        self.Q_loss_tf = tf.reduce_mean(self.errors_tf) # why reducing mean twice?, along which dimension? (reduces all dimensions)
 
+        #Policy loss 
         self.pi_loss_tf = -tf.reduce_mean(self.main.Q_pi_tf)
-        self.pi_loss_tf += self.action_l2 * tf.reduce_mean(tf.square(self.main.pi_tf / self.max_u))
+        self.pi_loss_tf += self.action_l2 * tf.reduce_mean(tf.square(self.main.pi_tf / self.max_u)) # policy_loss = (policy_kl_loss + policy_regularization_loss)
         Q_grads_tf = tf.gradients(self.Q_loss_tf, self._vars('main/Q'))
         pi_grads_tf = tf.gradients(self.pi_loss_tf, self._vars('main/pi'))
         assert len(self._vars('main/Q')) == len(Q_grads_tf)
         assert len(self._vars('main/pi')) == len(pi_grads_tf)
+        
+        #Q_grads are critic grads, zipped together Q_grads and Q, zipped together pi grads and pi 
         self.Q_grads_vars_tf = zip(Q_grads_tf, self._vars('main/Q'))
         self.pi_grads_vars_tf = zip(pi_grads_tf, self._vars('main/pi'))
         self.Q_grad_tf = flatten_grads(grads=Q_grads_tf, var_list=self._vars('main/Q'))
@@ -408,6 +424,10 @@ class DDPG(object):
         self.target_vars = self._vars('target/Q') + self._vars('target/pi')
 
         # polyak averaging
+         self.target_update_op = [
+                        tf.assign(target, (1 - self.tau) * target + self.tau * source)
+                        for target, source in zip(target_params, source_params)
+                    ]
         self.stats_vars = self._global_vars('o_stats') + self._global_vars('g_stats')
         self.init_target_net_op = list(
             map(lambda v: v[0].assign(v[1]), zip(self.target_vars, self.main_vars)))
