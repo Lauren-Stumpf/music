@@ -126,6 +126,7 @@ class DDPG(object):
         o, g = self._preprocess_og(o, ag, g)
         policy = self.target if use_target_net else self.main
         # values to compute
+        #might have to return action[0]? 
         if self.sac:
             vals = [policy.mu_tf]
         else:
@@ -395,14 +396,14 @@ class DDPG(object):
                         (1 - self.terminals_ph) * self.gamma * self.value_target
                     )
                     #Q regression 
-        
-        
+        # target_Q_pi_tf is value target
+        #target_tf is Q_target I think, target_Q_pi_tf is next value
         self.td_error_tf = tf.stop_gradient(target_tf) - self.main.Q_tf
         self.errors_tf = tf.square(self.td_error_tf) #stable baselines multiply by 0.5 
         self.errors_tf = tf.reduce_mean(batch_tf['w'] * self.errors_tf) #What is batch_tf['w']
         self.Q_loss_tf = tf.reduce_mean(self.errors_tf) # why reducing mean twice?, along which dimension? (reduces all dimensions)
 
-        #Policy loss 
+        #Policy loss, takes entropy coefficient to be 0 
         self.pi_loss_tf = -tf.reduce_mean(self.main.Q_pi_tf)
         self.pi_loss_tf += self.action_l2 * tf.reduce_mean(tf.square(self.main.pi_tf / self.max_u)) # policy_loss = (policy_kl_loss + policy_regularization_loss)
         Q_grads_tf = tf.gradients(self.Q_loss_tf, self._vars('main/Q'))
