@@ -107,7 +107,7 @@ class ActorCritic:
                 
                 input_Q = tf.concat(axis=1, values=[o, z, g, self.u_tf / self.max_u])
                 nets = [nn(input_Q, [self.hidden] * self.layers + [1], reuse=True) for i in range(n_nets)]
-                quantiles = torch.stack(values, axis=1)
+                quantiles = tf.stack(values, axis=1)
                 self.Q_tf = quantiles
         else: 
             with tf.variable_scope('Q'):
