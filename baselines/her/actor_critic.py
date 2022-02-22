@@ -16,7 +16,6 @@ def gaussian_likelihood(x, mu, log_std, mode = 'SAC'):
     
     return tf.reduce_sum(pre_sum, axis=1)
 
-def log_prob(pi
 
 def clip_but_pass_gradient(x, l=-1., u=1.):
     clip_up = tf.cast(x > u, tf.float32)
