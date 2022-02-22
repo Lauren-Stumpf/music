@@ -6,25 +6,36 @@ EPS = 1e-8
 LOG_STD_MAX = 2
 LOG_STD_MIN = -5
 
-def gaussian_likelihood(x, mu, log_std):
-    pre_sum = -0.5 * (((x-mu)/(tf.exp(log_std)+EPS))**2 + 2*log_std + np.log(2*np.pi))
+def gaussian_likelihood(x, mu, log_std, mode = 'SAC'):
+    
+    pre_sum = -0.5 * (((x-mu)/(tf.exp(log_std)+EPS))**2 
+    if mode == 'SAC:  
+        pre_sum += 2*log_std + np.log(2*np.pi))
+    elif mode == 'TQC':
+        pre_sum -= 2 * np.log(2) + tf.math.log_sigmoid(2 * pi) + tf.math.log_sigmoid(-2 * pi)
+    
     return tf.reduce_sum(pre_sum, axis=1)
+
+def log_prob(pi
 
 def clip_but_pass_gradient(x, l=-1., u=1.):
     clip_up = tf.cast(x > u, tf.float32)
     clip_low = tf.cast(x < l, tf.float32)
     return x + tf.stop_gradient((u - x)*clip_up + (l - x)*clip_low)
 
-def mlp_gaussian_policy(x, act_dim, hidden, layers):
+def mlp_gaussian_policy(x, act_dim, hidden, layers, mode='SAC'):
     net = nn(x, [hidden] * (layers+1))
     mu = tf.layers.dense(net, act_dim, activation=None)
 
     log_std = tf.layers.dense(net, act_dim, activation=tf.tanh)
     log_std = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (log_std + 1)
-
+    #if training in TQC
     std = tf.exp(log_std)
-    pi = mu + tf.random_normal(tf.shape(mu)) * std
-    logp_pi = gaussian_likelihood(pi, mu, log_std)
+    pi = mu + tf.random_normal(tf.shape(mu)) * std #r sample, pretanh
+    if mode == 'TQC':
+        logp_pi = gaussian_likelihood(pi, mu, log_std, mode = 'TQC')
+    else: 
+        logp_pi = gaussian_likelihood(pi, mu, log_std) # log prob + the sum line 
     return mu, pi, logp_pi
 
 def apply_squashing_func(mu, pi, logp_pi):
@@ -72,6 +83,15 @@ class ActorCritic:
                 self.mu_tf = mu * self.max_u
                 self.pi_tf = pi * self.max_u
                 self.neg_logp_pi_tf = - self.logp_pi_tf
+        if sac == 'TQC': 
+            with tf.variable_scope('pi'):
+                mu, pretanh, logp_pi = mlp_gaussian_policy(input_pi, self.dimu, self.hidden, self.layers, mode = 'TQC')
+                mu, pi, self.logp_pi_tf = apply_squashing_func(mu, pretanh, logp_pi)
+                # make sure actions are in correct range
+                self.mu_tf = mu * self.max_u
+                self.pi_tf = pi * self.max_u
+                self.neg_logp_pi_tf = - self.logp_pi_tf
+            
 
         else: # ddpg
             with tf.variable_scope('pi'):
@@ -79,11 +99,22 @@ class ActorCritic:
                     input_pi, [self.hidden] * self.layers + [self.dimu]))
 
         # Q value net
-        with tf.variable_scope('Q'):
-            # for policy training
-            input_Q = tf.concat(axis=1, values=[o, z, g, self.pi_tf / self.max_u])
-            self.Q_pi_tf = nn(input_Q, [self.hidden] * self.layers + [1])
-            # for critic training
-            input_Q = tf.concat(axis=1, values=[o, z, g, self.u_tf / self.max_u])
-            self._input_Q = input_Q  # exposed for tests
-            self.Q_tf = nn(input_Q, [self.hidden] * self.layers + [1], reuse=True)
+        if sac == 'TQC': 
+             with tf.variable_scope('Q'): 
+                # for policy training
+                input_Q = tf.concat(axis=1, values=[o, z, g, self.pi_tf / self.max_u])
+                self.Q_pi_tf = nn(input_Q, [self.hidden] * self.layers + [1])
+                
+                input_Q = tf.concat(axis=1, values=[o, z, g, self.u_tf / self.max_u])
+                nets = [nn(input_Q, [self.hidden] * self.layers + [1], reuse=True) for i in range(n_nets)]
+                quantiles = torch.stack(values, axis=1)
+                self.Q_tf = quantiles
+        else: 
+            with tf.variable_scope('Q'):
+                # for policy training
+                input_Q = tf.concat(axis=1, values=[o, z, g, self.pi_tf / self.max_u])
+                self.Q_pi_tf = nn(input_Q, [self.hidden] * self.layers + [1])
+                # for critic training
+                input_Q = tf.concat(axis=1, values=[o, z, g, self.u_tf / self.max_u])
+                self._input_Q = input_Q  # exposed for tests
+                self.Q_tf = nn(input_Q, [self.hidden] * self.layers + [1], reuse=True)
