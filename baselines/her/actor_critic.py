@@ -102,10 +102,12 @@ class ActorCritic:
              with tf.variable_scope('Q'): 
                 # for policy training
                 input_Q = tf.concat(axis=1, values=[o, z, g, self.pi_tf / self.max_u])
-                self.Q_pi_tf = nn(input_Q, [self.hidden] * self.layers + [1])
+                nets = [nn(input_Q, [self.hidden] * self.layers + [1], name = str(i)) for i in range(n_nets)]
+                quantiles = tf.stack(tuple(nets), axis=1)
+                self.Q_pi_tf = quantiles
                 
                 input_Q = tf.concat(axis=1, values=[o, z, g, self.u_tf / self.max_u])
-                nets = [nn(input_Q, [self.hidden] * self.layers + [1], reuse=True) for i in range(n_nets)]
+                nets = [nn(input_Q, [self.hidden] * self.layers + [1], reuse=True, name = str(i)) for i in range(n_nets)]
                 quantiles = tf.stack(tuple(nets), axis=1)
                 self.Q_tf = quantiles
         else: 
