@@ -91,8 +91,8 @@ class ActorCritic:
                 self.pi_tf = pi * self.max_u
                 self.neg_logp_pi_tf = - self.logp_pi_tf
             
-
-        else: # ddpg
+        elif sac == 'DDPG' or sac == 'TD3':
+        #else: # ddpg
             with tf.variable_scope('pi'):
                 self.pi_tf = self.max_u * tf.tanh(nn(
                     input_pi, [self.hidden] * self.layers + [self.dimu]))
