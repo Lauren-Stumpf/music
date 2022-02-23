@@ -352,6 +352,9 @@ class DDPG(object):
             target_batch_tf['g'] = batch_tf['g_2']
             self.target = self.create_actor_critic(
                 target_batch_tf, net_type='target', **self.__dict__)
+            if sac == 'TD3': 
+		self.target_1 = self.create_actor_critic(
+                target_batch_tf, net_type='target', **self.__dict__, sac = 'TD3')
             vs.reuse_variables()
         assert len(self._vars("main")) == len(self._vars("target"))
 
@@ -375,8 +378,10 @@ class DDPG(object):
         self.sk_grads_vars_tf = zip(sk_grads_tf, self._vars('ir/skill_ds'))
         self.sk_grad_tf = flatten_grads(grads=sk_grads_tf, var_list=self._vars('ir/skill_ds'))
         self.sk_adam = MpiAdam(self._vars('ir/skill_ds'), scale_grad_by_procs=False)
-
+	if sac == 'TD3': 
+		target_Q_pi_tf = min(self.target.Q_pi_tf, self.target_1.Q_pi_tf)
         target_Q_pi_tf = self.target.Q_pi_tf
+	
         clip_range = (-self.clip_return, self.clip_return if self.clip_pos_returns else np.inf)
 
         self.e_w_tf = batch_tf['e_w']
@@ -408,7 +413,10 @@ class DDPG(object):
         self.Q_loss_tf = tf.reduce_mean(self.errors_tf) # why reducing mean twice?, along which dimension? (reduces all dimensions)
 
         #Policy loss, takes entropy coefficient to be 0 
-        self.pi_loss_tf = -tf.reduce_mean(self.main.Q_pi_tf)
+	if sac == 'SAC' or sac == 'TQC':
+		self.pi_loss_tf = -tf.reduce_mean(self.et_r_scale * self.main.neg_logp_pi_tf + self.main.Q_pi_tf)
+	else: 
+        	self.pi_loss_tf = -tf.reduce_mean(self.main.Q_pi_tf)
         self.pi_loss_tf += self.action_l2 * tf.reduce_mean(tf.square(self.main.pi_tf / self.max_u)) # policy_loss = (policy_kl_loss + policy_regularization_loss)
         Q_grads_tf = tf.gradients(self.Q_loss_tf, self._vars('main/Q'))
         pi_grads_tf = tf.gradients(self.pi_loss_tf, self._vars('main/pi'))
