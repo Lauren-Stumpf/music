@@ -383,6 +383,10 @@ class DDPG(object):
 
         if not self.sac:
             self.main.neg_logp_pi_tf = tf.zeros(1)
+            
+        if self.sac == 'TQC':
+            sorted_z, _ = tf.sort(target_Q_pi_tf.reshape(batch_size, -1))
+			target_Q_pi_tf = sorted_z[:, :self.quantiles_total-self.top_quantiles_to_drop]
         #Confused about clip by value, what exactly are we clipping 
         target_tf = 
             tf.clip_by_value(
